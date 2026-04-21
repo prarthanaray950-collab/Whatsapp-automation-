@@ -63,7 +63,9 @@ const startBot = async () => {
     }),
     puppeteer: {
       headless: true,
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      // Let Puppeteer use its own downloaded Chrome (set by `npx puppeteer browsers install chrome` in build)
+      // Only override if PUPPETEER_EXECUTABLE_PATH is explicitly set and non-empty
+      ...(process.env.PUPPETEER_EXECUTABLE_PATH ? { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH } : {}),
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
