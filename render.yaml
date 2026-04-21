@@ -1,0 +1,26 @@
+# render.yaml — Drop this in your project root
+# Render will auto-detect it and configure your service
+
+services:
+  - type: web
+    name: satvikmeals-bot
+    env: node
+    region: singapore  # closest to India — low latency
+    plan: starter       # $7/month — no sleep, unlike free plan
+    buildCommand: npm install
+    startCommand: node index.js
+
+    # Environment variables — set actual values in Render Dashboard
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: MONGODB_URI
+        sync: false   # set secret in Render dashboard
+      - key: GEMINI_API_KEY
+        sync: false   # set secret in Render dashboard
+      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+        value: "true"
+      - key: PUPPETEER_EXECUTABLE_PATH
+        value: /usr/bin/google-chrome-stable
