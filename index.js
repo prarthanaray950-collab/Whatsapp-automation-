@@ -59,13 +59,11 @@ const startBot = async () => {
   client = new Client({
     authStrategy: new RemoteAuth({
       store,
-      backupSyncIntervalMs: 300_000, // save session to MongoDB every 5 min
+      backupSyncIntervalMs: 300_000,
     }),
     puppeteer: {
       headless: true,
-      // Let Puppeteer use its own downloaded Chrome (set by `npx puppeteer browsers install chrome` in build)
-      // Only override if PUPPETEER_EXECUTABLE_PATH is explicitly set and non-empty
-      ...(process.env.PUPPETEER_EXECUTABLE_PATH ? { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH } : {}),
+      // No executablePath needed — .puppeteerrc.cjs tells Puppeteer to use .chrome folder
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
