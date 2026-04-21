@@ -21,14 +21,13 @@ app.get("/", (_, res) => {
     <style>
       body{font-family:sans-serif;text-align:center;padding:30px;background:#f0fdf4}
       h1{color:#16a34a}
-      .status{font-size:1.2em;margin:12px 0}
       img{max-width:280px;border:2px solid #16a34a;border-radius:12px;margin-top:16px}
       .btn{display:inline-block;margin-top:16px;padding:10px 24px;background:#16a34a;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold}
     </style>
     <script>setTimeout(()=>{if("${botStatus}"!=="ready")location.reload();},6000);</script>
     </head><body>
     <h1>🌿 SatvikMeals Bot</h1>
-    <p class="status">Status: <strong>${botStatus}</strong></p>
+    <p>Status: <strong>${botStatus}</strong></p>
     ${botStatus === "qr_ready" && currentQR
       ? `<p>📱 Scan with WhatsApp:</p><img src="${currentQR}" alt="QR Code"/>`
       : botStatus === "ready"
@@ -49,21 +48,35 @@ app.get("/status", (_, res) => res.json({ botStatus }));
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`[Server] Running on port ${PORT}`));
 
+// ── Prevent crash on unhandled errors ────────────────────────────────────────
+process.on("unhandledRejection", (reason) => {
+  console.error("[UNHANDLED REJECTION]", reason);
+  // Don't exit — keep server running
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("[UNCAUGHT EXCEPTION]", err.message);
+  console.error(err.stack);
+  // Don't exit — keep server running
+});
+
 let client;
+let isRestarting = false;
 
 const startBot = async () => {
-  await connectDB();
+  if (isRestarting) return;
 
+  await connectDB();
   const store = new MongoStore();
 
   client = new Client({
     authStrategy: new RemoteAuth({
+      clientId: "satvikmeals",   // fixed ID so session key is always the same
       store,
-      backupSyncIntervalMs: 300_000,
+      backupSyncIntervalMs: 60_000, // save session every 1 min (more frequent)
     }),
     puppeteer: {
       headless: true,
-      // No executablePath needed — .puppeteerrc.cjs tells Puppeteer to use .chrome folder
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
@@ -83,16 +96,21 @@ const startBot = async () => {
     try {
       currentQR = await qrcode.toDataURL(qr, { width: 300, margin: 2 });
       botStatus = "qr_ready";
-      console.log("[QR] ✅ QR ready! Open Render URL in browser and scan.");
+      console.log("[QR] ✅ Open Render URL in browser and scan the QR.");
     } catch (err) {
       console.error("[QR] Failed:", err.message);
     }
   });
 
   client.on("authenticated", () => {
-    console.log("[WhatsApp] 🔐 Authenticated! Session saving to MongoDB...");
+    console.log("[WhatsApp] 🔐 Authenticated! Session will save to MongoDB...");
     botStatus = "authenticated";
     currentQR = null;
+  });
+
+  // Fires after session is fully saved to store
+  client.on("remote_session_saved", () => {
+    console.log("[WhatsApp] ✅ Session saved to MongoDB successfully!");
   });
 
   client.on("ready", () => {
@@ -105,22 +123,40 @@ const startBot = async () => {
 
   client.on("auth_failure", (msg) => {
     console.error("[WhatsApp] ❌ Auth failed:", msg);
-    botStatus = "disconnected";
+    botStatus = "auth_failed";
+    // Clear bad session from MongoDB so fresh QR is shown next time
+    store.delete({ session: "satvikmeals" }).catch(() => {});
   });
 
   client.on("disconnected", (reason) => {
     console.warn("[WhatsApp] ⚠️ Disconnected:", reason);
     botStatus = "disconnected";
     currentQR = null;
-    console.log("[WhatsApp] Restarting in 15s...");
-    setTimeout(() => startBot(), 15_000);
+    if (!isRestarting) {
+      isRestarting = true;
+      console.log("[WhatsApp] Restarting in 20s...");
+      setTimeout(() => {
+        isRestarting = false;
+        startBot();
+      }, 20_000);
+    }
   });
 
   client.on("message", (msg) => handleMessage(msg, client));
-  client.initialize();
+
+  try {
+    await client.initialize();
+  } catch (err) {
+    console.error("[WhatsApp] initialize() error:", err.message);
+    if (!isRestarting) {
+      isRestarting = true;
+      console.log("[WhatsApp] Retrying in 20s...");
+      setTimeout(() => {
+        isRestarting = false;
+        startBot();
+      }, 20_000);
+    }
+  }
 };
 
-startBot().catch((err) => {
-  console.error("[Startup] Fatal error:", err);
-  process.exit(1);
-});
+startBot();
